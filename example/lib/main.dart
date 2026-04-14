@@ -109,6 +109,7 @@ class _HomePageState extends State<HomePage> {
       id: 'out-${DateTime.now().millisecondsSinceEpoch}',
       callerName: 'Jane Smith',
       callerNumber: '+1 987 654 321',
+      avatar: 'https://i.pravatar.cc/120',
       type: 0,
       extra: {'userId': '67890'},
       android: AndroidCallKitParams(),
@@ -123,7 +124,9 @@ class _HomePageState extends State<HomePage> {
   Future<void> _showIncomingCallDelayed() async {
     // 7-second delay — press the button, then lock the screen
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Incoming call in 7 seconds — lock the screen now!')),
+      const SnackBar(
+        content: Text('Incoming call in 7 seconds — lock the screen now!'),
+      ),
     );
     await Future.delayed(const Duration(seconds: 7));
     await _callKit.show(_buildIncomingParams());
@@ -152,6 +155,7 @@ class _HomePageState extends State<HomePage> {
       CallKitParams(
         id: 'missed-${DateTime.now().millisecondsSinceEpoch}',
         callerName: 'Missed Caller',
+        avatar: 'https://i.pravatar.cc/120',
         callerNumber: '+1 111 222 333',
         missedCallNotification: NotificationParams(
           showNotification: true,
@@ -186,7 +190,10 @@ class _HomePageState extends State<HomePage> {
         children: [
           _buildSection('Incoming Call', [
             _ActionButton('Show Incoming Call', _showIncomingCall),
-            _ActionButton('Show After 7s (Lock Screen Test)', _showIncomingCallDelayed),
+            _ActionButton(
+              'Show After 7s (Lock Screen Test)',
+              _showIncomingCallDelayed,
+            ),
             _ActionButton('Dismiss All', _dismissAll),
           ]),
           _buildSection('Outgoing Call', [

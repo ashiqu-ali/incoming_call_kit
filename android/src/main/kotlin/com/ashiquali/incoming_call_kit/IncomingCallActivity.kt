@@ -2,6 +2,7 @@ package com.ashiquali.incoming_call_kit
 
 import android.animation.ObjectAnimator
 import android.animation.PropertyValuesHolder
+import android.content.res.ColorStateList
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -11,6 +12,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Shader
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.RippleDrawable
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
@@ -19,6 +21,7 @@ import android.util.Log
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
+import android.view.animation.DecelerateInterpolator
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.ImageView
@@ -191,25 +194,27 @@ class IncomingCallActivity : AppCompatActivity() {
             }.start()
         }
 
-        // Subtle glow animation (fade in/out border ring)
+        // Outward sonar pulse: ring scales out + fades away (RESTART mode)
         val enablePulse = androidConfig?.get("avatarPulseAnimation") as? Boolean ?: true
         if (enablePulse) {
-            val borderColor = parseColor(
-                androidConfig?.get("avatarBorderColor") as? String ?: "#66FFFFFF"
+            val ringColor = parseColor(
+                androidConfig?.get("avatarBorderColor") as? String ?: "#AAFFFFFF"
             )
-            val borderWidth = ((androidConfig?.get("avatarBorderWidth") as? Number)?.toFloat() ?: 3f) *
-                resources.displayMetrics.density
-
             pulseRing.background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(android.graphics.Color.TRANSPARENT)
-                setStroke(borderWidth.toInt(), borderColor)
+                setColor(ringColor)
             }
-            pulseAnimator = ObjectAnimator.ofFloat(pulseRing, "alpha", 0.2f, 1.0f).apply {
-                duration = 1200
+            pulseRing.alpha = 0f
+            pulseAnimator = ObjectAnimator.ofPropertyValuesHolder(
+                pulseRing,
+                PropertyValuesHolder.ofFloat("scaleX", 1f, 1.6f),
+                PropertyValuesHolder.ofFloat("scaleY", 1f, 1.6f),
+                PropertyValuesHolder.ofFloat("alpha", 0.8f, 0f)
+            ).apply {
+                duration = 1600
                 repeatCount = ObjectAnimator.INFINITE
-                repeatMode = ObjectAnimator.REVERSE
-                interpolator = android.view.animation.AccelerateDecelerateInterpolator()
+                repeatMode = ObjectAnimator.RESTART
+                interpolator = DecelerateInterpolator()
                 start()
             }
         } else {
@@ -308,14 +313,12 @@ class IncomingCallActivity : AppCompatActivity() {
         val acceptIcon = findViewById<ImageView>(R.id.accept_button_icon)
         val declineIcon = findViewById<ImageView>(R.id.decline_button_icon)
 
-        acceptIcon.background = GradientDrawable().apply {
-            shape = GradientDrawable.OVAL
-            setColor(acceptColor)
-        }
-        declineIcon.background = GradientDrawable().apply {
-            shape = GradientDrawable.OVAL
-            setColor(declineColor)
-        }
+        // Wrap circle background in RippleDrawable for vonage_voice-style touch feedback
+        val rippleColor = ColorStateList.valueOf(Color.argb(60, 255, 255, 255))
+        val acceptOval = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(acceptColor) }
+        val declineOval = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(declineColor) }
+        acceptIcon.background = RippleDrawable(rippleColor, acceptOval, acceptOval)
+        declineIcon.background = RippleDrawable(rippleColor, declineOval, declineOval)
 
         val acceptContainer = findViewById<FrameLayout>(R.id.accept_button_container)
         val declineContainer = findViewById<FrameLayout>(R.id.decline_button_container)
@@ -471,10 +474,10 @@ class IncomingCallActivity : AppCompatActivity() {
     private fun isMiui(): Boolean {
         return try {
             val clazz = Class.forName("android.os.SystemProperties")
-            val method = clazz.getMethod("get", String::class.java)
-            val miui = method.invoke(null, "ro.miui.ui.version.name") as? String
-            !miui.isNullOrEmpty()
-        } catch (_: Exception) {
+            val getMethod = clazz.getMethod("get", String::class.java)
+            val value = getMethod.invoke(null, "ro.miui.ui.version.name") as? String
+            value != null && value.isNotEmpty()
+        } catch (e: Exception) {
             false
         }
     }

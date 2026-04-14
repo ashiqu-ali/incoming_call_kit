@@ -6,9 +6,19 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.BitmapShader
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Shader
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.Person
+import androidx.core.graphics.drawable.IconCompat
+import java.net.HttpURLConnection
+import java.net.URL
 
 object NotificationBuilder {
 
@@ -24,12 +34,58 @@ object NotificationBuilder {
         return (callId.hashCode() and 0x7FFFFFFF) % 100000 + 300000
     }
 
+    /** Build a circular initials bitmap for use as a notification avatar (no network required). */
+    fun buildInitialsBitmap(name: String, sizePx: Int = 192): Bitmap {
+        val parts = name.trim().split(Regex("\\s+"))
+        val initials = if (parts.size >= 2) {
+            "${parts.first().first()}${parts.last().first()}".uppercase()
+        } else {
+            parts.first().firstOrNull()?.uppercase() ?: "?"
+        }
+        val bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#3A3A5C") }
+        canvas.drawCircle(sizePx / 2f, sizePx / 2f, sizePx / 2f, bgPaint)
+        val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            textSize = sizePx * 0.35f
+            textAlign = Paint.Align.CENTER
+            isFakeBoldText = true
+        }
+        val textY = sizePx / 2f - (textPaint.ascent() + textPaint.descent()) / 2f
+        canvas.drawText(initials, sizePx / 2f, textY, textPaint)
+        return bitmap
+    }
+
+    /** Download and crop avatar to a circle. Returns null on failure. */
+    fun downloadCircularBitmap(avatarUrl: String, sizePx: Int = 192): Bitmap? {
+        return try {
+            val connection = URL(avatarUrl).openConnection() as HttpURLConnection
+            connection.connectTimeout = 5000
+            connection.readTimeout = 5000
+            connection.doInput = true
+            connection.connect()
+            val raw = BitmapFactory.decodeStream(connection.inputStream) ?: return null
+            val scaled = Bitmap.createScaledBitmap(raw, sizePx, sizePx, true)
+            val output = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(output)
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                shader = BitmapShader(scaled, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+            }
+            canvas.drawCircle(sizePx / 2f, sizePx / 2f, sizePx / 2f, paint)
+            output
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     fun buildIncomingCallNotification(
         context: Context,
         callId: String,
         callerName: String,
         callerNumber: String?,
-        androidConfig: Map<String, Any?>?
+        androidConfig: Map<String, Any?>?,
+        callerIcon: Bitmap? = null
     ): Notification {
         createIncomingCallChannel(context, androidConfig)
 
@@ -83,6 +139,7 @@ object NotificationBuilder {
             .setContentTitle(callerName)
             .setContentText(callerNumber ?: "Incoming Call")
             .setSmallIcon(android.R.drawable.ic_menu_call)
+            .setLargeIcon(callerIcon)
             .setFullScreenIntent(fullScreenPI, true)
             .setOngoing(true)
             .setAutoCancel(false)

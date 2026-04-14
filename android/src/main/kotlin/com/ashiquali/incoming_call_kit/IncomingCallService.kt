@@ -61,8 +61,9 @@ class IncomingCallService : Service() {
                     val callerName = config["callerName"] as? String ?: "Unknown"
                     val callerNumber = config["callerNumber"] as? String
                     val androidConfig = config["android"] as? Map<String, Any?>
+                    val initialsBitmap = NotificationBuilder.buildInitialsBitmap(callerName)
                     NotificationBuilder.buildIncomingCallNotification(
-                        this, callId!!, callerName, callerNumber, androidConfig
+                        this, callId!!, callerName, callerNumber, androidConfig, initialsBitmap
                     )
                 } else {
                     NotificationBuilder.buildMinimalForegroundNotification(this)
@@ -105,9 +106,10 @@ class IncomingCallService : Service() {
         val androidConfig = config["android"] as? Map<String, Any?>
         val duration = (config["duration"] as? Number)?.toLong() ?: 30000L
 
-        // Build and show notification
+        // Build and show notification — initials bitmap immediately (no network delay)
+        val initialsBitmap = NotificationBuilder.buildInitialsBitmap(callerName)
         val notification = NotificationBuilder.buildIncomingCallNotification(
-            this, callId, callerName, callerNumber, androidConfig
+            this, callId, callerName, callerNumber, androidConfig, initialsBitmap
         )
         val notifId = NotificationBuilder.getNotificationId(callId)
 
@@ -149,6 +151,24 @@ class IncomingCallService : Service() {
 
         activeCallIds.add(callId)
         callTimestamps[callId] = System.currentTimeMillis()
+
+        // Download real avatar in background and update notification
+        val avatarUrl = config["avatar"] as? String
+        if (!avatarUrl.isNullOrEmpty()) {
+            Thread {
+                val avatarBitmap = NotificationBuilder.downloadCircularBitmap(avatarUrl)
+                if (avatarBitmap != null && activeCallIds.contains(callId)) {
+                    val updated = NotificationBuilder.buildIncomingCallNotification(
+                        this, callId, callerName, callerNumber, androidConfig, avatarBitmap
+                    )
+                    try {
+                        NotificationManagerCompat.from(this).notify(notifId, updated)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to update notification with avatar", e)
+                    }
+                }
+            }.start()
+        }
     }
 
     private fun handleAccept(intent: Intent) {
