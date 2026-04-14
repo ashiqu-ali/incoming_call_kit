@@ -1,7 +1,7 @@
 name: incoming_call_kit
-description: "Highly customizable Flutter plugin for incoming call UI. Custom Android full-screen with gradients and swipe gestures. CallKit for iOS."
+description: "Native incoming, outgoing & missed call UI for Flutter. Full-screen Activity on Android, CallKit on iOS. SDK-agnostic."
 version: 0.0.1
-homepage: https://github.com/ashiqualii/incoming_call_kit
+homepage: https://github.com/ashiqu-ali/incoming_call_kit
 
 environment:
   sdk: ^3.6.0
