@@ -3,6 +3,12 @@ description: "Native incoming, outgoing & missed call UI for Flutter. Full-scree
 version: 0.0.1
 homepage: https://github.com/ashiqu-ali/incoming_call_kit
 
+screenshots:
+  - description: 'Full-screen incoming call UI with avatar, caller info, and accept/decline buttons'
+    path: assets/incoming_screen.png
+  - description: 'Incoming call notification with CallStyle (API 31+) showing caller name and quick-action buttons'
+    path: assets/incoming_notification.png
+
 environment:
   sdk: ^3.6.0
   flutter: ">=3.27.0"

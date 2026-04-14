@@ -33,6 +33,19 @@
 
 ---
 
+## Screenshots
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/ashiqu-ali/incoming_call_kit/refs/heads/main/assets/incoming_screen.png" width="280" alt="Full-screen incoming call UI"/>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="https://raw.githubusercontent.com/ashiqu-ali/incoming_call_kit/refs/heads/main/assets/incoming_notification.png" width="280" alt="Incoming call notification"/>
+</p>
+<p align="center">
+  <em>Full-screen call UI &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Incoming call notification</em>
+</p>
+
+---
+
 ## Table of Contents
 
 - [Features](#-features)
