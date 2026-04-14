@@ -21,7 +21,11 @@ object CallKitConfigStore {
     fun load(context: Context, callId: String): Map<String, Any?>? {
         val prefs = context.getSharedPreferences(Constants.PREFS_NAME, Context.MODE_PRIVATE)
         val json = prefs.getString("call_$callId", null) ?: return null
-        return jsonToMap(JSONObject(json))
+        return try {
+            jsonToMap(JSONObject(json))
+        } catch (_: Exception) {
+            null
+        }
     }
 
     fun remove(context: Context, callId: String) {
@@ -45,25 +49,29 @@ object CallKitConfigStore {
     fun storePendingEvent(context: Context, event: Map<String, Any?>) {
         val prefs = context.getSharedPreferences(Constants.PREFS_NAME, Context.MODE_PRIVATE)
         val existing = prefs.getString(Constants.PREFS_PENDING_EVENTS, "[]")
-        val arr = JSONArray(existing)
+        val arr = try { JSONArray(existing) } catch (_: Exception) { JSONArray() }
         arr.put(JSONObject(event))
-        prefs.edit().putString(Constants.PREFS_PENDING_EVENTS, arr.toString()).apply()
+        prefs.edit().putString(Constants.PREFS_PENDING_EVENTS, arr.toString()).commit()
     }
 
     fun getPendingEvents(context: Context): List<Map<String, Any?>> {
         val prefs = context.getSharedPreferences(Constants.PREFS_NAME, Context.MODE_PRIVATE)
         val json = prefs.getString(Constants.PREFS_PENDING_EVENTS, "[]")
-        val arr = JSONArray(json)
-        val events = mutableListOf<Map<String, Any?>>()
-        for (i in 0 until arr.length()) {
-            events.add(jsonToMap(arr.getJSONObject(i)))
+        return try {
+            val arr = JSONArray(json)
+            val events = mutableListOf<Map<String, Any?>>()
+            for (i in 0 until arr.length()) {
+                events.add(jsonToMap(arr.getJSONObject(i)))
+            }
+            events
+        } catch (_: Exception) {
+            emptyList()
         }
-        return events
     }
 
     fun clearPendingEvents(context: Context) {
         val prefs = context.getSharedPreferences(Constants.PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit().putString(Constants.PREFS_PENDING_EVENTS, "[]").apply()
+        prefs.edit().putString(Constants.PREFS_PENDING_EVENTS, "[]").commit()
     }
 
     // === JSON helpers ===

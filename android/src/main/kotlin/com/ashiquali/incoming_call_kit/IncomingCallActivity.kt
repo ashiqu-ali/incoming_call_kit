@@ -14,6 +14,8 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
+import android.provider.Settings
+import android.util.Log
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
@@ -29,6 +31,7 @@ import java.net.URL
 class IncomingCallActivity : AppCompatActivity() {
 
     companion object {
+        private const val TAG = "IncomingCallActivity"
         @Volatile
         var isActivityAlive = false
         var lastAliveTimestamp = 0L
@@ -38,6 +41,8 @@ class IncomingCallActivity : AppCompatActivity() {
     private var callId: String? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var pulseAnimator: ObjectAnimator? = null
+    @Volatile
+    private var callHandled = false
 
     @Suppress("DEPRECATION")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -72,6 +77,7 @@ class IncomingCallActivity : AppCompatActivity() {
 
         // Read callId
         callId = intent?.getStringExtra(Constants.EXTRA_CALL_ID) ?: run { finish(); return }
+        val id = callId ?: run { finish(); return }
 
         // Dedup
         if (isActivityAlive && System.currentTimeMillis() - lastAliveTimestamp < 60000) {
@@ -82,8 +88,16 @@ class IncomingCallActivity : AppCompatActivity() {
         lastAliveTimestamp = System.currentTimeMillis()
         finishActivity = { finish() }
 
+        // MIUI overlay fallback for lock screen
+        if (isMiui() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val km = getSystemService(KEYGUARD_SERVICE) as? android.app.KeyguardManager
+            if (km?.isKeyguardLocked == true && Settings.canDrawOverlays(this)) {
+                window.setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY)
+            }
+        }
+
         // Load config
-        val config = CallKitConfigStore.load(this, callId!!) ?: run { finish(); return }
+        val config = CallKitConfigStore.load(this, id) ?: run { finish(); return }
 
         setContentView(R.layout.activity_incoming_call)
 
@@ -101,7 +115,7 @@ class IncomingCallActivity : AppCompatActivity() {
 
         val gradientConfig = androidConfig?.get("backgroundGradient") as? Map<String, Any?>
         if (gradientConfig != null) {
-            val colors = (gradientConfig["colors"] as? List<*>)?.map { parseColor(it as String) }?.toIntArray()
+            val colors = (gradientConfig["colors"] as? List<*>)?.map { parseColor(it?.toString() ?: "#000000") }?.toIntArray()
             if (colors != null) {
                 val type = gradientConfig["type"] as? String ?: "linear"
                 val drawable = GradientDrawable()
@@ -177,22 +191,25 @@ class IncomingCallActivity : AppCompatActivity() {
             }.start()
         }
 
-        // Pulse animation
+        // Subtle glow animation (fade in/out border ring)
         val enablePulse = androidConfig?.get("avatarPulseAnimation") as? Boolean ?: true
         if (enablePulse) {
+            val borderColor = parseColor(
+                androidConfig?.get("avatarBorderColor") as? String ?: "#66FFFFFF"
+            )
+            val borderWidth = ((androidConfig?.get("avatarBorderWidth") as? Number)?.toFloat() ?: 3f) *
+                resources.displayMetrics.density
+
             pulseRing.background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(parseColor("#33FFFFFF"))
+                setColor(android.graphics.Color.TRANSPARENT)
+                setStroke(borderWidth.toInt(), borderColor)
             }
-            pulseAnimator = ObjectAnimator.ofPropertyValuesHolder(
-                pulseRing,
-                PropertyValuesHolder.ofFloat("scaleX", 1.0f, 1.3f),
-                PropertyValuesHolder.ofFloat("scaleY", 1.0f, 1.3f),
-                PropertyValuesHolder.ofFloat("alpha", 1.0f, 0.0f),
-            ).apply {
-                duration = 1500
+            pulseAnimator = ObjectAnimator.ofFloat(pulseRing, "alpha", 0.2f, 1.0f).apply {
+                duration = 1200
                 repeatCount = ObjectAnimator.INFINITE
-                repeatMode = ObjectAnimator.RESTART
+                repeatMode = ObjectAnimator.REVERSE
+                interpolator = android.view.animation.AccelerateDecelerateInterpolator()
                 start()
             }
         } else {
@@ -404,27 +421,41 @@ class IncomingCallActivity : AppCompatActivity() {
         }
 
     private fun acceptCall() {
+        if (callHandled) { finish(); return }
+        callHandled = true
+
         val intent = Intent(this, IncomingCallService::class.java).apply {
             action = Constants.ACTION_ACCEPT
             putExtra(Constants.EXTRA_CALL_ID, callId)
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
-        } else {
-            startService(intent)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to send ACTION_ACCEPT: ${e.message}")
         }
         finish()
     }
 
     private fun declineCall() {
+        if (callHandled) { finish(); return }
+        callHandled = true
+
         val intent = Intent(this, IncomingCallService::class.java).apply {
             action = Constants.ACTION_DECLINE
             putExtra(Constants.EXTRA_CALL_ID, callId)
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
-        } else {
-            startService(intent)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to send ACTION_DECLINE: ${e.message}")
         }
         finish()
     }
@@ -434,6 +465,17 @@ class IncomingCallActivity : AppCompatActivity() {
             Color.parseColor(hex)
         } catch (_: Exception) {
             Color.BLACK
+        }
+    }
+
+    private fun isMiui(): Boolean {
+        return try {
+            val clazz = Class.forName("android.os.SystemProperties")
+            val method = clazz.getMethod("get", String::class.java)
+            val miui = method.invoke(null, "ro.miui.ui.version.name") as? String
+            !miui.isNullOrEmpty()
+        } catch (_: Exception) {
+            false
         }
     }
 

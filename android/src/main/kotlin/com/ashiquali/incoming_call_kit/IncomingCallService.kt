@@ -15,6 +15,7 @@ class IncomingCallService : Service() {
 
     companion object {
         private const val TAG = "IncomingCallService"
+        private const val STALE_CALL_TIMEOUT_MS = 120_000L // 2 minutes
     }
 
     private lateinit var ringtoneManager: CallKitRingtoneManager
@@ -22,6 +23,7 @@ class IncomingCallService : Service() {
     private val timeoutHandler = Handler(Looper.getMainLooper())
     private val timeoutRunnables = mutableMapOf<String, Runnable>()
     private val activeCallIds = mutableSetOf<String>()
+    private val callTimestamps = mutableMapOf<String, Long>()
 
     override fun onCreate() {
         super.onCreate()
@@ -32,7 +34,7 @@ class IncomingCallService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // CRITICAL: call ensureForeground() IMMEDIATELY — Android kills after 5s otherwise
-        ensureForeground()
+        ensureForeground(intent)
 
         when (intent?.action) {
             Constants.ACTION_SHOW_INCOMING -> handleShowIncoming(intent)
@@ -49,9 +51,25 @@ class IncomingCallService : Service() {
     }
 
     @Suppress("DEPRECATION")
-    private fun ensureForeground() {
+    private fun ensureForeground(intent: Intent? = null) {
         try {
-            val notification = NotificationBuilder.buildMinimalForegroundNotification(this)
+            // Try to build the real notification immediately to avoid "Call Service" flash
+            val notification = if (intent?.action == Constants.ACTION_SHOW_INCOMING) {
+                val callId = intent.getStringExtra(Constants.EXTRA_CALL_ID)
+                val config = callId?.let { CallKitConfigStore.load(this, it) }
+                if (config != null) {
+                    val callerName = config["callerName"] as? String ?: "Unknown"
+                    val callerNumber = config["callerNumber"] as? String
+                    val androidConfig = config["android"] as? Map<String, Any?>
+                    NotificationBuilder.buildIncomingCallNotification(
+                        this, callId!!, callerName, callerNumber, androidConfig
+                    )
+                } else {
+                    NotificationBuilder.buildMinimalForegroundNotification(this)
+                }
+            } else {
+                NotificationBuilder.buildMinimalForegroundNotification(this)
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 startForeground(
                     Constants.FOREGROUND_SERVICE_NOTIFICATION_ID,
@@ -70,6 +88,16 @@ class IncomingCallService : Service() {
 
     private fun handleShowIncoming(intent: Intent) {
         val callId = intent.getStringExtra(Constants.EXTRA_CALL_ID) ?: return
+
+        // Dedup guard — skip if already showing this call
+        if (activeCallIds.contains(callId)) {
+            Log.d(TAG, "Duplicate incoming call for callId=$callId — skipping")
+            return
+        }
+
+        // Clean up stale calls
+        expireStaleInvites()
+
         val config = CallKitConfigStore.load(this, callId) ?: return
 
         val callerName = config["callerName"] as? String ?: "Unknown"
@@ -87,14 +115,19 @@ class IncomingCallService : Service() {
         NotificationManagerCompat.from(this).cancel(notifId)
 
         // Update foreground with the call notification
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                Constants.FOREGROUND_SERVICE_NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL
-            )
-        } else {
-            startForeground(Constants.FOREGROUND_SERVICE_NOTIFICATION_ID, notification)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    Constants.FOREGROUND_SERVICE_NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL
+                )
+            } else {
+                startForeground(Constants.FOREGROUND_SERVICE_NOTIFICATION_ID, notification)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to update foreground notification", e)
+            NotificationManagerCompat.from(this).notify(notifId, notification)
         }
 
         // ALSO post as regular notification (dual-post for OEMs)
@@ -108,12 +141,14 @@ class IncomingCallService : Service() {
         // Acquire wake lock
         acquireWakeLock()
 
-        // Schedule timeout
+        // Schedule timeout (cancel old runnable first if exists)
+        timeoutRunnables.remove(callId)?.let { timeoutHandler.removeCallbacks(it) }
         val timeoutRunnable = Runnable { handleTimeout(callId) }
         timeoutRunnables[callId] = timeoutRunnable
         timeoutHandler.postDelayed(timeoutRunnable, duration)
 
         activeCallIds.add(callId)
+        callTimestamps[callId] = System.currentTimeMillis()
     }
 
     private fun handleAccept(intent: Intent) {
@@ -240,6 +275,7 @@ class IncomingCallService : Service() {
         NotificationManagerCompat.from(this).cancel(notifId)
 
         activeCallIds.remove(callId)
+        callTimestamps.remove(callId)
     }
 
     private fun emitEvent(action: String, callId: String) {
@@ -262,6 +298,21 @@ class IncomingCallService : Service() {
             )
             if (extra != null) eventMap["extra"] = extra
             CallKitConfigStore.storePendingEvent(this, eventMap)
+        }
+    }
+
+    private fun expireStaleInvites() {
+        val now = System.currentTimeMillis()
+        val staleIds = callTimestamps.filter { (_, ts) ->
+            now - ts > STALE_CALL_TIMEOUT_MS
+        }.keys.toList()
+        for (staleId in staleIds) {
+            Log.w(TAG, "Expiring stale call: $staleId")
+            cleanup(staleId)
+            CallKitConfigStore.remove(this, staleId)
+        }
+        if (staleIds.isNotEmpty()) {
+            finishActivityIfAlive()
         }
     }
 

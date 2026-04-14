@@ -14,12 +14,14 @@ object BackgroundCallHandler {
     private const val BACKGROUND_CHANNEL = "com.ashiquali.incoming_call_kit/background"
 
     private var flutterEngine: FlutterEngine? = null
+    private val pendingEventQueue = mutableListOf<Map<String, Any?>>()
+    private var isEngineReady = false
 
     fun setCallbackHandle(context: Context, handle: Long) {
         context.getSharedPreferences(Constants.PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .putLong(Constants.PREFS_BACKGROUND_CALLBACK_HANDLE, handle)
-            .apply()
+            .commit()
     }
 
     fun getCallbackHandle(context: Context): Long {
@@ -31,6 +33,7 @@ object BackgroundCallHandler {
         return getCallbackHandle(context) != 0L
     }
 
+    @Synchronized
     fun dispatchEvent(context: Context, event: Map<String, Any?>) {
         val handle = getCallbackHandle(context)
         if (handle == 0L) {
@@ -39,19 +42,30 @@ object BackgroundCallHandler {
             return
         }
 
+        pendingEventQueue.add(event)
+
+        if (flutterEngine != null && isEngineReady) {
+            flushEvents()
+            return
+        }
+
+        if (flutterEngine != null) {
+            // Engine starting but not ready yet — event is queued, will flush on ready
+            return
+        }
+
         try {
             val callbackInfo = FlutterCallbackInformation.lookupCallbackInformation(handle)
             if (callbackInfo == null) {
                 Log.e(TAG, "Failed to lookup callback information for handle: $handle")
-                CallKitConfigStore.storePendingEvent(context, event)
+                persistQueuedEvents(context)
                 return
             }
 
-            if (flutterEngine == null) {
-                flutterEngine = FlutterEngine(context, null, false)
-            }
-
+            flutterEngine = FlutterEngine(context, null, false)
             val engine = flutterEngine!!
+            isEngineReady = false
+
             val backgroundChannel = MethodChannel(
                 engine.dartExecutor.binaryMessenger,
                 BACKGROUND_CHANNEL
@@ -59,7 +73,8 @@ object BackgroundCallHandler {
 
             backgroundChannel.setMethodCallHandler { call: MethodCall, result: MethodChannel.Result ->
                 if (call.method == "backgroundHandlerInitialized") {
-                    backgroundChannel.invokeMethod("onBackgroundEvent", event)
+                    isEngineReady = true
+                    flushEvents()
                     result.success(null)
                 } else {
                     result.notImplemented()
@@ -76,11 +91,38 @@ object BackgroundCallHandler {
             )
         } catch (e: Exception) {
             Log.e(TAG, "Failed to dispatch background event", e)
-            CallKitConfigStore.storePendingEvent(context, event)
+            persistQueuedEvents(context)
+            destroyEngine()
         }
     }
 
+    private fun flushEvents() {
+        val engine = flutterEngine ?: return
+        val backgroundChannel = MethodChannel(
+            engine.dartExecutor.binaryMessenger,
+            BACKGROUND_CHANNEL
+        )
+        val toFlush = pendingEventQueue.toList()
+        pendingEventQueue.clear()
+        for (event in toFlush) {
+            backgroundChannel.invokeMethod("onBackgroundEvent", event)
+        }
+        // Destroy engine after flushing to prevent memory leak
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            destroyEngine()
+        }, 2000)
+    }
+
+    private fun persistQueuedEvents(context: Context) {
+        for (event in pendingEventQueue) {
+            CallKitConfigStore.storePendingEvent(context, event)
+        }
+        pendingEventQueue.clear()
+    }
+
+    @Synchronized
     fun destroyEngine() {
+        isEngineReady = false
         flutterEngine?.destroy()
         flutterEngine = null
     }

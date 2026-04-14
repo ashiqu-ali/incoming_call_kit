@@ -1,8 +1,10 @@
 package com.ashiquali.incoming_call_kit
 
+import java.util.concurrent.CopyOnWriteArrayList
+
 object CallKitEventBus {
     private val listeners =
-        mutableListOf<(action: String, callId: String, extra: Map<String, Any?>?) -> Unit>()
+        CopyOnWriteArrayList<(action: String, callId: String, extra: Map<String, Any?>?) -> Unit>()
 
     fun register(listener: (action: String, callId: String, extra: Map<String, Any?>?) -> Unit) {
         listeners.add(listener)
@@ -15,6 +17,8 @@ object CallKitEventBus {
     fun hasListeners(): Boolean = listeners.isNotEmpty()
 
     fun emit(action: String, callId: String, extra: Map<String, Any?>? = null) {
-        listeners.toList().forEach { it(action, callId, extra) }
+        for (listener in listeners) {
+            listener(action, callId, extra)
+        }
     }
 }

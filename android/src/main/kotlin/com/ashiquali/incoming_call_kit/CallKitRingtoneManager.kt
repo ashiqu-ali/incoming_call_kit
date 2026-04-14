@@ -82,7 +82,7 @@ class CallKitRingtoneManager(private val context: Context) {
     @Suppress("DEPRECATION")
     private fun startVibration(config: Map<String, Any?>) {
         val patternRaw = config["vibrationPattern"] as? List<*>
-        val pattern = patternRaw?.map { (it as Number).toLong() }?.toLongArray()
+        val pattern = patternRaw?.map { (it as? Number)?.toLong() ?: 0L }?.toLongArray()
             ?: longArrayOf(0L, 1000L, 1000L)
 
         vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {

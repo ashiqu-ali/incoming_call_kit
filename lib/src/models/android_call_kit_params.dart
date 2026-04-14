@@ -30,7 +30,7 @@ class AndroidCallKitParams {
   final bool showCallerIdInNotification;
 
   const AndroidCallKitParams({
-    this.backgroundColor = '#1B1B2F',
+    this.backgroundColor,
     this.backgroundGradient,
     this.backgroundImageUrl,
     this.avatarSize = 96,

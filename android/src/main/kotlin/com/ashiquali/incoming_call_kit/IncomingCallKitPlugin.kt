@@ -30,6 +30,7 @@ class IncomingCallKitPlugin :
     private var applicationContext: Context? = null
     private var activity: Activity? = null
     private var pendingPermissionResult: Result? = null
+    private val pendingEvents = mutableListOf<Map<String, Any?>>()
 
     private val eventBusListener: (String, String, Map<String, Any?>?) -> Unit =
         { action, callId, extra ->
@@ -38,7 +39,14 @@ class IncomingCallKitPlugin :
                 "callId" to callId,
             )
             if (extra != null) eventMap["extra"] = extra
-            eventSink?.success(eventMap)
+            val sink = eventSink
+            if (sink != null) {
+                sink.success(eventMap)
+            } else {
+                synchronized(pendingEvents) {
+                    pendingEvents.add(eventMap)
+                }
+            }
         }
 
     // === FlutterPlugin ===
@@ -53,9 +61,6 @@ class IncomingCallKitPlugin :
         eventChannel.setStreamHandler(this)
 
         CallKitEventBus.register(eventBusListener)
-
-        // Replay pending events from killed state
-        replayPendingEvents(binding.applicationContext)
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
@@ -69,8 +74,27 @@ class IncomingCallKitPlugin :
 
     override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
         eventSink = events
-        // Replay again in case events arrived between attach and listen
-        applicationContext?.let { replayPendingEvents(it) }
+        if (events != null) {
+            // Replay persisted events from killed state
+            applicationContext?.let { ctx ->
+                val persisted = CallKitConfigStore.getPendingEvents(ctx)
+                if (persisted.isNotEmpty()) {
+                    for (event in persisted) {
+                        events.success(event)
+                    }
+                    CallKitConfigStore.clearPendingEvents(ctx)
+                }
+            }
+            // Flush in-memory pending events
+            val toFlush: List<Map<String, Any?>>
+            synchronized(pendingEvents) {
+                toFlush = pendingEvents.toList()
+                pendingEvents.clear()
+            }
+            for (event in toFlush) {
+                events.success(event)
+            }
+        }
     }
 
     override fun onCancel(arguments: Any?) {
@@ -397,18 +421,6 @@ class IncomingCallKitPlugin :
             return true
         }
         return false
-    }
-
-    // === Helpers ===
-
-    private fun replayPendingEvents(context: Context) {
-        val events = CallKitConfigStore.getPendingEvents(context)
-        if (events.isNotEmpty()) {
-            for (event in events) {
-                eventSink?.success(event)
-            }
-            CallKitConfigStore.clearPendingEvents(context)
-        }
     }
 
     companion object {

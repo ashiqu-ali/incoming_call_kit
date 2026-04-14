@@ -81,7 +81,7 @@ class _HomePageState extends State<HomePage> {
       id: 'call-${DateTime.now().millisecondsSinceEpoch}',
       callerName: 'John Doe',
       callerNumber: '+1 234 567 890',
-      avatar: 'https://i.pravatar.cc/200',
+      avatar: 'https://i.pravatar.cc/120',
       type: 0,
       duration: const Duration(seconds: 30),
       textAccept: 'Accept',
@@ -117,6 +117,15 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _showIncomingCall() async {
+    await _callKit.show(_buildIncomingParams());
+  }
+
+  Future<void> _showIncomingCallDelayed() async {
+    // 7-second delay — press the button, then lock the screen
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Incoming call in 7 seconds — lock the screen now!')),
+    );
+    await Future.delayed(const Duration(seconds: 7));
     await _callKit.show(_buildIncomingParams());
   }
 
@@ -177,6 +186,7 @@ class _HomePageState extends State<HomePage> {
         children: [
           _buildSection('Incoming Call', [
             _ActionButton('Show Incoming Call', _showIncomingCall),
+            _ActionButton('Show After 7s (Lock Screen Test)', _showIncomingCallDelayed),
             _ActionButton('Dismiss All', _dismissAll),
           ]),
           _buildSection('Outgoing Call', [
