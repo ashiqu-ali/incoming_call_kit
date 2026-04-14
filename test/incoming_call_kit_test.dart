@@ -1,0 +1,64 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:incoming_call_kit/incoming_call_kit.dart';
+
+void main() {
+  test('CallKitParams serialization', () {
+    final params = CallKitParams(
+      id: 'test-123',
+      callerName: 'Test User',
+      callerNumber: '+1234567890',
+      type: 0,
+    );
+
+    final map = params.toMap();
+    expect(map['id'], 'test-123');
+    expect(map['callerName'], 'Test User');
+    expect(map['callerNumber'], '+1234567890');
+    expect(map['type'], 0);
+    expect(map['duration'], 30000);
+  });
+
+  test('CallKitEvent fromMap', () {
+    final event = CallKitEvent.fromMap({
+      'action': 'accept',
+      'callId': 'call-1',
+      'extra': {'key': 'value'},
+    });
+
+    expect(event.action, CallKitAction.accept);
+    expect(event.callId, 'call-1');
+    expect(event.extra?['key'], 'value');
+  });
+
+  test('GradientConfig serialization', () {
+    final config = GradientConfig(
+      colors: ['#1A1A2E', '#16213E', '#0F3460'],
+      type: 'linear',
+    );
+
+    final map = config.toMap();
+    expect(map['colors'], ['#1A1A2E', '#16213E', '#0F3460']);
+    expect(map['type'], 'linear');
+
+    final restored = GradientConfig.fromMap(map);
+    expect(restored.colors, config.colors);
+    expect(restored.type, config.type);
+  });
+
+  test('AndroidCallKitParams assert on both bg + gradient', () {
+    expect(
+      () => AndroidCallKitParams(
+        backgroundColor: '#FF0000',
+        backgroundGradient: GradientConfig(colors: ['#000000', '#FFFFFF']),
+      ),
+      throwsA(isA<AssertionError>()),
+    );
+  });
+
+  test('IOSCallKitParams defaults', () {
+    const params = IOSCallKitParams();
+    expect(params.handleType, 'generic');
+    expect(params.supportsVideo, false);
+    expect(params.maximumCallGroups, 2);
+  });
+}
